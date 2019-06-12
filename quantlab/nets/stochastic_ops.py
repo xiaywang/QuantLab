@@ -6,6 +6,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn.modules.utils import _single, _pair, _triple
+from inq import update_mask
 
 
 class UniformHeavisideProcess(torch.autograd.Function):
@@ -16,10 +17,10 @@ class UniformHeavisideProcess(torch.autograd.Function):
     the jumps positions.
     """
     @staticmethod
-    def forward(ctx, x, q, t, s, is_p, training):
+    def forward(ctx, x, q, t, s, is_p, training, mask):
         # is_p = isinstance(x, nn.Parameter)
         is_p      = torch.Tensor([is_p]).to(torch.float32)
-        ctx.save_for_backward(x, q, t, s, is_p)
+        ctx.save_for_backward(x, q, t, s, is_p, mask)
         t_shape   = [*t.size()] + [1 for dim in range(x.dim())]  # dimensions with size 1 enable broadcasting
         x_minus_t = x - t.reshape(t_shape)
         if training:
@@ -32,7 +33,11 @@ class UniformHeavisideProcess(torch.autograd.Function):
                 s_shape = [*s[0].size()] + [1 for dim in range(x.dim() - 2)]  # BxCx(N_1xN_2...xN_n)
             no_noise = no_noise.reshape(s_shape)
             cdf = (1 - no_noise) * torch.clamp((0.5 * x_minus_t) * sf_inv.reshape(s_shape) + 0.5, 0., 1.)\
-                      + no_noise * (x_minus_t >= 0.).float()
+                + no_noise * (x_minus_t >= 0.).float()
+            if mask is not None:
+                #make broadcastable
+                mask = mask.reshape([1]+mask.size())
+                cdf = mask*cdf + (1-mask)*(x_minus_t>= 0.).float()
         else:
             cdf = (x_minus_t >= 0.).float()
         d       = q[1:] - q[:-1]
@@ -41,7 +46,7 @@ class UniformHeavisideProcess(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, grad_incoming):
-        x, q, t, s, is_p = ctx.saved_tensors
+        x, q, t, s, is_p, mask = ctx.saved_tensors
         t_shape   = [*t.size()] + [1 for dim in range(x.dim())]  # dimensions with size 1 enable broadcasting
         x_minus_t = x - t.reshape(t_shape)
         no_noise  = (s[1] == 0.).float()  # channels with zero noise
@@ -56,6 +61,8 @@ class UniformHeavisideProcess(torch.autograd.Function):
         d              = q[1:] - q[:-1]
         local_jacobian = torch.sum(d.reshape(t_shape) * pdf, 0)
         grad_outgoing  = grad_incoming * local_jacobian
+        if mask is not None:
+            grad_outgoing *= mask
         return grad_outgoing, None, None, None, None, None
 
 
@@ -124,7 +131,7 @@ class StochasticActivation(nn.Module):
 class StochasticLinear(nn.Module):
     """Affine transform with quantized parameters."""
     def __init__(self, process, quant_levels, thresholds,
-                 in_features, out_features, bias=True):
+                 in_features, out_features, bias=True, fine_inq=False):
         super(StochasticLinear, self).__init__()
         # set stochastic properties
         self.process = process
@@ -150,6 +157,10 @@ class StochasticLinear(nn.Module):
             self.bias = nn.Parameter(torch.Tensor(out_features))
         else:
             self.register_parameter('bias', None)
+        if fine_inq:
+            self.init_inq()
+        else:
+            self.inq_mask = None
         self.reset_parameters()
 
     def reset_parameters(self):
@@ -161,19 +172,35 @@ class StochasticLinear(nn.Module):
         # init biases
         if self.bias is not None:
             self.bias.data.uniform_(-stdv, stdv)
+        #mask=1 means the weight is NOT quantized - this allows for easy
+        #multiplication with gradients
+        try:
+            self.inq_mask.data.fill_(1.0)
+        except AttributeError:
+            pass
 
     def set_stddev(self, stddev):
         self.stddev.data = torch.Tensor(stddev).to(self.stddev)
 
     def forward(self, input):
-        weight = self.activate_weight(self.weight, self.quant_levels, self.thresholds, self.stddev, 1, self.training)
+        weight = self.activate_weight(self.weight, self.quant_levels, self.thresholds, self.stddev, 1, self.training, self.inq_mask)
         return F.linear(input, weight, self.bias)
+
+    def init_inq(self):
+        #reset or initialize inq mask
+        if not hasattr(self, 'inq_mask'):
+            self.inq_mask = nn.Parameter(torch.ones(out_features, in_features), requires_grad=False)
+        else:
+            self.inq_mask.data.fill_(1.0)
+
+    def update_inq_mask(self, frac):
+        self.inq_mask.data = update_mask(self.weight, self.inq_mask, frac)
 
 
 class _StochasticConvNd(nn.Module):
     """Cross-correlation transform with quantized parameters."""
     def __init__(self, process, quant_levels, thresholds,
-                 in_channels, out_channels, kernel_size, stride, padding, dilation, transposed, output_padding, groups, bias):
+                 in_channels, out_channels, kernel_size, stride, padding, dilation, transposed, output_padding, groups, bias, fine_inq=False):
         super(_StochasticConvNd, self).__init__()
         # set stochastic properties
         self.process = process
@@ -215,6 +242,9 @@ class _StochasticConvNd(nn.Module):
             self.bias = nn.Parameter(torch.Tensor(out_channels))
         else:
             self.register_parameter('bias', None)
+        if fine_inq:
+            self.inq_mask = nn.Parameter(torch.Tensor(in_channels, out_channels // groups, *kernel_size), requires_grad=False)
+
         self.reset_parameters()
 
     def reset_parameters(self):
@@ -229,21 +259,33 @@ class _StochasticConvNd(nn.Module):
         # init biases
         if self.bias is not None:
             self.bias.data.uniform_(-stdv, stdv)
-
+        try:
+            self.inq_mask.data.fill_(1.0)
+        except AttributeError:
+            pass
     def set_stddev(self, stddev):
         self.stddev.data = torch.Tensor(stddev).to(self.stddev)
 
+    def init_inq(self):
+        #reset or initialize inq mask
+        if not hasattr(self, 'inq_mask'):
+            self.inq_mask = nn.Parameter(torch.ones(out_features, in_features), requires_grad=False)
+        else:
+            self.inq_mask.fill_(1.0)
+
+    def update_inq_mask(self, frac):
+        self.inq_mask.data = update_mask(self.weight, self.inq_mask, frac)
 
 class StochasticConv1d(_StochasticConvNd):
     def __init__(self, process, quant_levels, thresholds,
-                 in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True):
+                 in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True, fine_inq=False):
         kernel_size = _single(kernel_size)
         stride      = _single(stride)
         padding     = _single(padding)
         dilation    = _single(dilation)
         super(StochasticConv1d, self).__init__(
               process, quant_levels, thresholds,
-              in_channels, out_channels, kernel_size, stride, padding, dilation, False, _single(0), groups, bias)
+              in_channels, out_channels, kernel_size, stride, padding, dilation, False, _single(0), groups, bias, fine_inq)
 
     def forward(self, input):
         weight = self.activate_weight(self.weight, self.quant_levels, self.thresholds, self.stddev, 1, self.training)
@@ -252,14 +294,14 @@ class StochasticConv1d(_StochasticConvNd):
 
 class StochasticConv2d(_StochasticConvNd):
     def __init__(self, process, quant_levels, thresholds,
-                 in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True):
+                 in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True, fine_inq=False):
         kernel_size = _pair(kernel_size)
         stride      = _pair(stride)
         padding     = _pair(padding)
         dilation    = _pair(dilation)
         super(StochasticConv2d, self).__init__(
               process, quant_levels, thresholds,
-              in_channels, out_channels, kernel_size, stride, padding, dilation, False, _pair(0), groups, bias)
+              in_channels, out_channels, kernel_size, stride, padding, dilation, False, _pair(0), groups, bias, fine_inq)
 
     def forward(self, input):
         weight = self.activate_weight(self.weight, self.quant_levels, self.thresholds, self.stddev, 1, self.training)
@@ -268,14 +310,14 @@ class StochasticConv2d(_StochasticConvNd):
 
 class StochasticConv3d(_StochasticConvNd):
     def __init__(self, process, quant_levels, thresholds,
-                 in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True):
+                 in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True, fine_inq=False):
         kernel_size = _triple(kernel_size)
         stride      = _triple(stride)
         padding     = _triple(padding)
         dilation    = _triple(dilation)
         super(StochasticConv3d, self).__init__(
               process, quant_levels, thresholds,
-              in_channels, out_channels, kernel_size, stride, padding, dilation, False, _triple(0), groups, bias)
+              in_channels, out_channels, kernel_size, stride, padding, dilation, False, _triple(0), groups, bias, fine_inq)
 
     def forward(self, input):
         weight = self.activate_weight(self.weight, self.quant_levels, self.thresholds, self.stddev, 1, self.training)

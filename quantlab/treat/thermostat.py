@@ -37,20 +37,23 @@ class Thermostat(object):
                 self.noise_scheme[m]['backward']     = t_backward
         if INQ is not None:
             i_start = 0
+            self.INQ             = dict()
             for map_group in INQ["bindings"]:
                 maps = list()
                 for group_name in map_group['maps']:
                     maps = maps + self._solve_maps(net, group_name)
-                map_group_channels = [self._get_num_channels(getattr(net, m)) for m in maps]
-                assert all(num_c == map_group_channels[0] for num_c in map_group_channels)
-                i_end = i_start + map_group_channels[0]
-                for m in maps:
-                    self.noise_scheme[m]['INQ_mask_slice'] = np.s_[i_start:i_end]
-                i_start = i_end
-            self.INQ             = dict()
+                    # all modules for which fine-grained INQ is to be applied
+                    # get put in this list
+                    self.INQ['modules'] = list()
+                    for m in maps:
+                        mdl = getattr(net, m)
+                        try:
+                            mdl.init_inq()
+                        except AttributeError:
+                            print("Tried to apply fine-grained INQ on incompatible class {}".format(type(mdl).__name__))
+                        self.INQ['modules'].append(mdl)
+
             self.INQ['schedule'] = INQ['schedule']
-            self.INQ['mask']     = np.ones(i_end)
-            self.INQ['perm']     = np.random.permutation(i_end)
         else:
             self.INQ = None
 
@@ -85,22 +88,23 @@ class Thermostat(object):
             channels_attr = 'out_channels'
         return getattr(mod, channels_attr)
 
-    def update_INQ(self):
-        p = self.INQ['schedule'][str(self.t)]
-        self.INQ['mask'][self.INQ['perm'][0:int(p * len(self.INQ['mask']))]] = 0.
+    def update_INQ(self, frac):
+        for mdl in self.INQ['modules']:
+            mdl.update_inq_mask(frac)
+
 
     def step(self):
         self.t = self.t + 1
         for (t_forward, t_backward) in self.timers:
             t_forward.update(self.t)
             t_backward.update(self.t)
-        if (self.INQ is not None) and (str(self.t) in self.INQ['schedule'].keys()):
-            self.update_INQ()
+        if self.INQ is not None:
+            try:
+                self.update_INQ(self.INQ['schedule'][str(self.t)])
+            except KeyError:
+                pass
         for m, scheme in self.noise_scheme.items():
             stddev     = copy.copy(scheme['stddev_start'])
             stddev[0] *= scheme['forward'].decay_factor
             stddev[1] *= scheme['backward'].decay_factor
-            if 'INQ_mask_slice' in scheme.keys():
-                mask    = self.INQ['mask'][scheme['INQ_mask_slice']]
-                stddev *= mask
             scheme['module'].set_stddev(stddev)
