@@ -6,7 +6,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn.modules.utils import _single, _pair, _triple
-from inq import update_mask
+from quantlab.nets.inq import update_mask
 
 
 class UniformHeavisideProcess(torch.autograd.Function):
@@ -36,7 +36,7 @@ class UniformHeavisideProcess(torch.autograd.Function):
                 + no_noise * (x_minus_t >= 0.).float()
             if mask is not None:
                 #make broadcastable
-                mask = mask.reshape([1]+mask.size())
+                mask = mask.reshape([1]+list(mask.size()))
                 cdf = mask*cdf + (1-mask)*(x_minus_t>= 0.).float()
         else:
             cdf = (x_minus_t >= 0.).float()
@@ -125,7 +125,7 @@ class StochasticActivation(nn.Module):
         self.stddev.data = torch.Tensor(stddev).to(self.stddev)
 
     def forward(self, x):
-        return self.activate(x, self.quant_levels, self.thresholds, self.stddev, 0, self.training)
+        return self.activate(x, self.quant_levels, self.thresholds, self.stddev, 0, self.training, None)
 
 
 class StochasticLinear(nn.Module):
@@ -157,10 +157,8 @@ class StochasticLinear(nn.Module):
             self.bias = nn.Parameter(torch.Tensor(out_features))
         else:
             self.register_parameter('bias', None)
-        if fine_inq:
-            self.init_inq()
-        else:
-            self.inq_mask = None
+        self.inq_mask = None
+        self.inq = fine_inq
         self.reset_parameters()
 
     def reset_parameters(self):
@@ -174,10 +172,8 @@ class StochasticLinear(nn.Module):
             self.bias.data.uniform_(-stdv, stdv)
         #mask=1 means the weight is NOT quantized - this allows for easy
         #multiplication with gradients
-        try:
-            self.inq_mask.data.fill_(1.0)
-        except AttributeError:
-            pass
+        if self.inq:
+            self.init_inq()
 
     def set_stddev(self, stddev):
         self.stddev.data = torch.Tensor(stddev).to(self.stddev)
@@ -187,13 +183,16 @@ class StochasticLinear(nn.Module):
         return F.linear(input, weight, self.bias)
 
     def init_inq(self):
-        #reset or initialize inq mask
-        if not hasattr(self, 'inq_mask'):
-            self.inq_mask = nn.Parameter(torch.ones(out_features, in_features), requires_grad=False)
+        #reset or initialize inq mask - we assume that this is called
+        #"knowingly", i.e. self.inq has to be true
+        self.inq = True
+        if self.inq_mask is None:
+            self.inq_mask = nn.Parameter(torch.ones_like(self.weight), requires_grad=False)
         else:
             self.inq_mask.data.fill_(1.0)
 
     def update_inq_mask(self, frac):
+        assert self.inq, "Trying to update INQ mask for {} module with INQ disabled - check your code!".format(type(self).__name__)
         self.inq_mask.data = update_mask(self.weight, self.inq_mask, frac)
 
 
@@ -242,9 +241,8 @@ class _StochasticConvNd(nn.Module):
             self.bias = nn.Parameter(torch.Tensor(out_channels))
         else:
             self.register_parameter('bias', None)
-        if fine_inq:
-            self.inq_mask = nn.Parameter(torch.Tensor(in_channels, out_channels // groups, *kernel_size), requires_grad=False)
-
+        self.inq_mask = None
+        self.inq = fine_inq
         self.reset_parameters()
 
     def reset_parameters(self):
@@ -259,17 +257,16 @@ class _StochasticConvNd(nn.Module):
         # init biases
         if self.bias is not None:
             self.bias.data.uniform_(-stdv, stdv)
-        try:
-            self.inq_mask.data.fill_(1.0)
-        except AttributeError:
-            pass
+        if self.inq:
+            self.init_inq()
     def set_stddev(self, stddev):
         self.stddev.data = torch.Tensor(stddev).to(self.stddev)
 
     def init_inq(self):
         #reset or initialize inq mask
-        if not hasattr(self, 'inq_mask'):
-            self.inq_mask = nn.Parameter(torch.ones(out_features, in_features), requires_grad=False)
+        self.inq = True
+        if self.inq_mask is None:
+            self.inq_mask = nn.Parameter(torch.ones_like(self.weight), requires_grad=False)
         else:
             self.inq_mask.fill_(1.0)
 

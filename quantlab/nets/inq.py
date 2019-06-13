@@ -15,8 +15,8 @@ def update_mask(weights, mask, frac):
     data = weights[mask==0]
     #how much is already quantized?
     prev_quant = np.prod(list(mask[mask.data==0].size()))/np.prod(list(mask.size()))
-    eff_quant_frac = frac/(1-prev_quant)
+    eff_quant_frac = (1-frac)/(1-prev_quant)
     dataSorted, _ = data.clone().contiguous().view(-1).abs_().cpu().sort()
-    partition = int(len(dataSorted) * (1-fraction)) - 1
+    partition = int(len(dataSorted) * (1-frac)) - 1
     threshold = dataSorted[partition].item()
     return np.logical_or(mask, weights.abs()<threshold)

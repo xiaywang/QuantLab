@@ -38,13 +38,13 @@ class Thermostat(object):
         if INQ is not None:
             i_start = 0
             self.INQ             = dict()
+            # all modules for which fine-grained INQ is to be applied
+            # get put in this list
+            self.INQ['modules'] = list()
             for map_group in INQ["bindings"]:
                 maps = list()
                 for group_name in map_group['maps']:
                     maps = maps + self._solve_maps(net, group_name)
-                    # all modules for which fine-grained INQ is to be applied
-                    # get put in this list
-                    self.INQ['modules'] = list()
                     for m in maps:
                         mdl = getattr(net, m)
                         try:
