@@ -63,7 +63,7 @@ class UniformHeavisideProcess(torch.autograd.Function):
         grad_outgoing  = grad_incoming * local_jacobian
         if mask is not None:
             grad_outgoing *= mask
-        return grad_outgoing, None, None, None, None, None
+        return grad_outgoing, None, None, None, None, None, None
 
 
 # class GaussianHeavisideProcess(torch.autograd.Function):
