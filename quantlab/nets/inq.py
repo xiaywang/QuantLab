@@ -7,10 +7,10 @@ def update_mask(weights, mask, frac):
     assert frac >= 0.0 and frac <=1.0, "Invalid quantization fraction passed to inq.update_mask!"
     assert weights.shape == mask.shape, "Weights and mask_data passed to inq.update_mask have incompatible shape!"
     if frac == 0.0:
-        mask.data = np.ones_like(mask.data)
+        mask.data = torch.ones_like(mask.data)
         return
     if frac == 1.0:
-        mask.data = np.zeros_like(mask.data)
+        mask.data = torch.zeros_like(mask.data)
         return
     #select unquantized weights
     data = weights[mask==1]
