@@ -45,14 +45,13 @@ class Thermostat(object):
                 maps = list()
                 for group_name in map_group['maps']:
                     maps = maps + self._solve_maps(net, group_name)
-                    for m in maps:
-                        mdl = getattr(net, m)
-                        try:
-                            mdl.init_inq()
-                        except AttributeError:
-                            print("Tried to apply fine-grained INQ on incompatible class {}".format(type(mdl).__name__))
+                for m in maps:
+                    mdl = getattr(net, m)
+                    try:
+                        mdl.init_inq()
                         self.INQ['modules'].append(mdl)
-
+                    except AttributeError:
+                        print("Tried to apply fine-grained INQ on incompatible class {}".format(type(mdl).__name__))
             self.INQ['schedule'] = INQ['schedule']
         else:
             self.INQ = None
