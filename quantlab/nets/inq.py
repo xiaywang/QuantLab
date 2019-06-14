@@ -13,16 +13,21 @@ def update_mask(weights, mask, frac):
         mask.data = torch.zeros_like(mask.data)
         return
     #select unquantized weights
-    data = weights[mask==1]
+    data = weights[mask==1.0]
     data_len = np.prod(list(data.size()))
-    if data_len != 0:
+    #if we get a fully frozen weight set, allow 'thawing' 
+    if data_len == 0:
+        data = weights
+        prev_quant = 0.0
+    else:
         #how much is already quantized?
         prev_quant = np.prod(list(mask[mask.data==0].size()))/np.prod(list(mask.size()))
         eff_quant_frac = (frac-prev_quant)/(1-prev_quant)
-        dataSorted, _ = data.clone().contiguous().view(-1).abs_().cpu().sort()
-        partition = int(len(dataSorted) * (1-eff_quant_frac)) - 1
+
+    dataSorted, _ = data.clone().contiguous().view(-1).abs_().cpu().sort()
+    partition = np.maximum(int(len(dataSorted) * (1-eff_quant_frac)) - 1, 0)
+    if partition == 0:
+        threshold = -1
+    else:
         threshold = dataSorted[partition].item()
-        if partition == 0:
-            threshold = 0
-        return np.logical_and(mask, weights.abs()>=threshold).float().to(weights.device)
-    return mask.data
+    return np.logical_and(mask, weights.abs()>threshold).float().to(weights.device)
