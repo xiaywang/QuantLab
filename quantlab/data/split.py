@@ -20,7 +20,7 @@ class TransformSubset(torch.utils.data.Dataset):
         try:
             if self.dataset.transform != self.transform:
                 self.dataset.transform = self.transform
-        except AttributeErrror:
+        except AttributeError:
             pass
         return self.dataset[self.indices[idx]]
 
