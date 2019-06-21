@@ -17,8 +17,11 @@ class TransformSubset(torch.utils.data.Dataset):
         self.transform = transform
 
     def __getitem__(self, idx):
-        if self.dataset.transform != self.transform:
-            self.dataset.transform = self.transform
+        try:
+            if self.dataset.transform != self.transform:
+                self.dataset.transform = self.transform
+        except AttributeErrror:
+            pass
         return self.dataset[self.indices[idx]]
 
     def __len__(self):
