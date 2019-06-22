@@ -131,7 +131,7 @@ class StochasticActivation(nn.Module):
 class StochasticLinear(nn.Module):
     """Affine transform with quantized parameters."""
     def __init__(self, process, quant_levels, thresholds,
-                 in_features, out_features, bias=True, fine_inq=False):
+                 in_features, out_features, bias=True, use_mask=False):
         super(StochasticLinear, self).__init__()
         # set stochastic properties
         self.process = process
@@ -158,7 +158,7 @@ class StochasticLinear(nn.Module):
         else:
             self.register_parameter('bias', None)
         self.inq_mask = None
-        self.inq = fine_inq
+        self.inq = use_mask
         self.reset_parameters()
 
     def reset_parameters(self):
@@ -199,7 +199,7 @@ class StochasticLinear(nn.Module):
 class _StochasticConvNd(nn.Module):
     """Cross-correlation transform with quantized parameters."""
     def __init__(self, process, quant_levels, thresholds,
-                 in_channels, out_channels, kernel_size, stride, padding, dilation, transposed, output_padding, groups, bias, fine_inq=False):
+                 in_channels, out_channels, kernel_size, stride, padding, dilation, transposed, output_padding, groups, bias, use_mask=False):
         super(_StochasticConvNd, self).__init__()
         # set stochastic properties
         self.process = process
@@ -242,7 +242,7 @@ class _StochasticConvNd(nn.Module):
         else:
             self.register_parameter('bias', None)
         self.inq_mask = None
-        self.inq = fine_inq
+        self.inq = use_mask
         self.reset_parameters()
 
     def reset_parameters(self):
