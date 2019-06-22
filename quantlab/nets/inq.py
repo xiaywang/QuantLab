@@ -22,7 +22,7 @@ def update_mask(weights, mask, frac):
     else:
         #how much is already quantized?
         prev_quant = np.prod(list(mask[mask.data==0].size()))/np.prod(list(mask.size()))
-        eff_quant_frac = (frac-prev_quant)/(1-prev_quant)
+    eff_quant_frac = (frac-prev_quant)/(1-prev_quant)
 
     dataSorted, _ = data.clone().contiguous().view(-1).abs_().cpu().sort()
     partition = np.maximum(int(len(dataSorted) * (1-eff_quant_frac)) - 1, 0)
@@ -30,4 +30,4 @@ def update_mask(weights, mask, frac):
         threshold = -1
     else:
         threshold = dataSorted[partition].item()
-    return np.logical_and(mask, weights.abs()>threshold).float().to(weights.device)
+    return np.logical_and(mask, weights.abs()<threshold).float().to(weights.device)
