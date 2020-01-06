@@ -37,7 +37,7 @@ class STEController(indiv.Controller):
         super().__init__()
         self.modules = modules
         
-    def step(self, epoch, optimizer=None):
+    def step(self, epoch, optimizer=None, tensorboardWriter=None):
         #step each STE module
         for m in self.modules: 
             m.step(epoch)
