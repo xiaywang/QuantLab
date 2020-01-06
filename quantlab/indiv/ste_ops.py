@@ -99,7 +99,7 @@ class STEActivation(torch.nn.Module):
         if epoch >= self.startEpoch:
             self.started = True
 
-        if epoch == self.monitorEpoch:
+        if self.monitorEpoch is not None and epoch == self.monitorEpoch:
             self.monitoring = True
             self.absMaxValue.data[0] = 0.0
         else:
