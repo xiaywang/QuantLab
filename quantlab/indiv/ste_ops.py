@@ -48,7 +48,11 @@ class STEController(indiv.Controller):
 
 class STEActivation(torch.nn.Module):
     """quantizes activations according to the straight-through estiamtor (STE). 
-    Needs a STEController, if startEpoch > 0"""
+    Needs a STEController, if startEpoch > 0
+
+    monitorEpoch: In this epoch, keep track of the maximal activation value (absolute value).
+        Then (at epoch >= startEpoch), clamp the values to [-max, max], and then do quantization.
+        If monitorEpoch is None, max=1 is used."""
     def __init__(self, startEpoch=0, numLevels=3, passGradsWhenClamped=False, monitorEpoch=None):
         super().__init__()
         self.startEpoch = startEpoch
