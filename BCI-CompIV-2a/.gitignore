@@ -1,0 +1,5 @@
+*
+!.gitignore
+!config_ref.json
+!config_INQ.json
+!config.json
