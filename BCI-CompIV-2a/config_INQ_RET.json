@@ -15,21 +15,33 @@
         "quantWeight": true,
         "weightInqSchedule": {
           "1": 0,
-          "200": 0.5,
-          "220": 0.75,
-          "240": 0.875,
-          "260": 0.9375,
-          "280": 0.96875,
-          "290": 0.984375,
-          "300": 1
+          "2": 0.5,
+          "20": 0.75,
+          "40": 0.875,
+          "60": 0.9375,
+          "80": 0.96875,
+          "90": 0.984375,
+          "100": 1
         },
         "weightInqNumLevels": 256,
         "weightInqStrategy": "magnitude-SRQ",
         "quantAct": true,
-        "actSTENumLevels": 256,
-        "actSTEStartEpoch": 150
+        "actSTENumLevels": 256
       },
-      "pretrained": null
+      "pretrained": {
+        "file": "/scratch/sem19h24/QuantLab/BCI-CompIV-2a/logs/exp901/saves/epoch0500.ckpt",
+        "parameters": [
+          "conv1.weight",
+          "batch_norm1",
+          "conv2.weight",
+          "batch_norm2",
+          "sep_conv1.weight",
+          "sep_conv2.weight",
+          "batch_norm3",
+          "fc.weight",
+          "fc.bias"
+        ]
+      }
     },
     "loss_function": {
       "class": "CrossEntropyLoss",
@@ -45,14 +57,14 @@
     },
     "optimizer": {
       "class": "Adam",
-      "params": {"lr": 1e-3}
+      "params": {"lr": 1e-4}
     },
     "lr_scheduler": {
         "class": "StepLR",
         "params": {"step_size": 1000, "gamma": 1}
     },
     "data": {
-      "subject": 3,
+      "subject": 1,
       "fs": 250,
       "t1_factor": 1.5,
       "t2_factor": 6.0,
@@ -68,7 +80,7 @@
       "bs_train": 32,
       "bs_valid": 32
     },
-    "max_epoch": 500
+    "max_epoch": 200
   },
   "protocol": {
     "update_metric": "valid_metric",

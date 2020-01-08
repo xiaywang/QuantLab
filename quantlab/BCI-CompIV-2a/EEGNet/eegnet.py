@@ -16,7 +16,7 @@ class EEGNet(t.nn.Module):
     def __init__(self, F1=8, D=2, F2=None, C=22, T=1125, N=4, p_dropout=0.5,
                  dropout_type='TimeDropout2d', quantWeight=True, quantAct=True,
                  weightInqSchedule=None, weightInqNumLevels=256, weightInqStrategy="matnitude",
-                 actSTENumLevels=256):
+                 actSTENumLevels=256, actSTEStartEpoch=2):
         """
         F1:           Number of spectral filters
         D:            Number of spacial filters (per spectral filter), F2 = F1 * D
@@ -58,14 +58,20 @@ class EEGNet(t.nn.Module):
 
         # prepare helper functions to easily declare activation, convolution and linear unit
         def activ():
+            start = actSTEStartEpoch
+            monitor = start - 1
             if quantAct:
-                return STEReLUActivation(startEpoch=2, monitorEpoch=1, numLevels=actSTENumLevels)
+                return STEReLUActivation(startEpoch=start, monitorEpoch=monitor,
+                                         numLevels=actSTENumLevels)
             else:
                 return t.nn.ReLU(inplace=True)
 
         def activ_only():
+            start = actSTEStartEpoch
+            monitor = start - 1
             if quantAct:
-                return STEActivation(startEpoch=2, monitorEpoch=1, numLevels=actSTENumLevels)
+                return STEActivation(startEpoch=start, monitorEpoch=monitor,
+                                     numLevels=actSTENumLevels)
             else:
                 return t.nn.Identity()
 
