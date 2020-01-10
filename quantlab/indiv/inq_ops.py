@@ -149,6 +149,14 @@ class INQParameterController:
                 assert(self.numLevels == 2)
                 quantLevels = [self.s/2, -self.s/2]#[2**n_2, -2**n_2]
                 
+        elif self.quantInitMethod == 'uniform':
+            # update s
+            if self.fraction == 0.0 and math.isnan(self.s):
+                self.s = torch.max(torch.abs(self.weight.data)).item()
+
+            #compute quantization levels
+            quantLevels = torch.linspace(-self.s, self.s, steps=self.numLevels)
+
         elif self.quantInitMethod in ['uniform-l1opt', 
                                       'uniform-l2opt', 
                                       'uniform-perCh-l2opt', 
