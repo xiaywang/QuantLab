@@ -33,14 +33,15 @@ def STERoundFunctional(x):
     return x - (x - x.round()).detach()
 
 class STEController(indiv.Controller):
-    def __init__(self, modules):
+    def __init__(self, modules, clearOptimStateOnStart=False):
         super().__init__()
         self.modules = modules
+        self.clearOptimStateOnStart = clearOptimStateOnStart
         
     def step(self, epoch, optimizer=None, tensorboardWriter=None):
         #step each STE module
         for m in self.modules: 
-            m.step(epoch)
+            m.step(epoch, self.clearOptimStateOnStart, optimizer)
                 
     @staticmethod
     def getSteModules(net):
@@ -95,7 +96,10 @@ class STEActivation(torch.nn.Module):
             y = x
         return y
     
-    def step(self, epoch):
+    def step(self, epoch, clearOptimStateOnStart, optimizer):
+        if clearOptimStateOnStart and epoch == self.startEpoch:
+            optimizer.state.clear()
+
         if epoch >= self.startEpoch:
             self.started = True
 
