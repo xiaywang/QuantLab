@@ -15,18 +15,22 @@
         "quantWeight": true,
         "weightInqSchedule": {
           "1": 0,
-          "2": 0.5,
-          "20": 0.75,
-          "40": 0.875,
-          "60": 0.9375,
-          "80": 0.96875,
-          "90": 0.984375,
-          "100": 1
+          "30": 0.2,
+          "50": 0.4,
+          "70": 0.6,
+          "90": 0.8,
+          "110": 0.875,
+          "120": 0.9375,
+          "130": 0.96875,
+          "140": 0.984375,
+          "150": 1
         },
-        "weightInqNumLevels": 256,
-        "weightInqStrategy": "magnitude-SRQ",
+        "weightInqNumLevels": 255,
+        "weightInqStrategy": "magnitude",
+        "weightInqInitMethod": "uniform",
         "quantAct": true,
-        "actSTENumLevels": 256
+        "actSTENumLevels": 256,
+        "actSTEStartEpoch": 2
       },
       "pretrained": {
         "file": "/scratch/sem19h24/QuantLab/BCI-CompIV-2a/logs/exp901/saves/epoch0500.ckpt",
@@ -80,7 +84,7 @@
       "bs_train": 32,
       "bs_valid": 32
     },
-    "max_epoch": 200
+    "max_epoch": 160
   },
   "protocol": {
     "update_metric": "valid_metric",

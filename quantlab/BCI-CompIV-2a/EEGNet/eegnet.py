@@ -15,8 +15,8 @@ class EEGNet(t.nn.Module):
 
     def __init__(self, F1=8, D=2, F2=None, C=22, T=1125, N=4, p_dropout=0.5,
                  dropout_type='TimeDropout2d', quantWeight=True, quantAct=True,
-                 weightInqSchedule=None, weightInqNumLevels=256, weightInqStrategy="matnitude",
-                 actSTENumLevels=256, actSTEStartEpoch=2):
+                 weightInqSchedule=None, weightInqNumLevels=255, weightInqStrategy="matnitude",
+                 weightInqInitMethod="uniform", actSTENumLevels=256, actSTEStartEpoch=2):
         """
         F1:           Number of spectral filters
         D:            Number of spacial filters (per spectral filter), F2 = F1 * D
@@ -78,14 +78,15 @@ class EEGNet(t.nn.Module):
         def linear(name, n_in, n_out, bias=True):
             if quantWeight:
                 return INQLinear(n_in, n_out, bias=bias, numLevels=weightInqNumLevels,
-                                 strategy=weightInqStrategy)
+                                 strategy=weightInqStrategy, quantInitMethod=weightInqInitMethod)
             else:
                 return t.nn.Linear(n_in, n_out, bias=bias)
 
         def conv2d(name, in_channels, out_channels, kernel_size, **argv):
             if quantWeight:
                 return INQConv2d(in_channels, out_channels, kernel_size,
-                                 numLevels=weightInqNumLevels, strategy=weightInqStrategy, **argv)
+                                 numLevels=weightInqNumLevels, strategy=weightInqStrategy,
+                                 quantInitMethod=weightInqInitMethod, **argv)
             else:
                 return t.nn.Conv2d(in_channels, out_channels, kernel_size, **argv)
 
@@ -118,8 +119,10 @@ class EEGNet(t.nn.Module):
         self.flatten = Flatten()
         self.fc = linear("fc", F2 * n_features, N, bias=True)
 
-        self.inqController = INQController(INQController.getInqModules(self), weightInqSchedule)
-        self.steController = STEController(STEController.getSteModules(self))
+        self.inqController = INQController(INQController.getInqModules(self), weightInqSchedule,
+                                           clearOptimStateOnStep=True)
+        self.steController = STEController(STEController.getSteModules(self),
+                                           clearOptimStateOnStart=True)
 
         # initialize weights
         # self._initialize_params()

@@ -15,19 +15,28 @@
         "quantWeight": true,
         "weightInqSchedule": {
           "1": 0,
-          "200": 0.5,
-          "220": 0.75,
-          "240": 0.875,
-          "260": 0.9375,
-          "280": 0.96875,
-          "290": 0.984375,
-          "300": 1
+          "420": 0.1,
+          "440": 0.2,
+          "460": 0.3,
+          "480": 0.4,
+          "500": 0.5,
+          "520": 0.6,
+          "540": 0.7,
+          "560": 0.8,
+          "580": 0.9,
+          "600": 0.96832,
+          "620": 0.97624,
+          "640": 0.98218,
+          "660": 0.98664,
+          "680": 0.98998,
+          "700": 1
         },
         "weightInqNumLevels": 256,
-        "weightInqStrategy": "magnitude-SRQ",
+        "weightInqStrategy": "magnitude",
+        "weightInqInitMethod": "uniform",
         "quantAct": true,
         "actSTENumLevels": 256,
-        "actSTEStartEpoch": 150
+        "actSTEStartEpoch": 400
       },
       "pretrained": null
     },
@@ -52,7 +61,7 @@
         "params": {"step_size": 1000, "gamma": 1}
     },
     "data": {
-      "subject": 3,
+      "subject": 1,
       "fs": 250,
       "t1_factor": 1.5,
       "t2_factor": 6.0,
@@ -68,7 +77,7 @@
       "bs_train": 32,
       "bs_valid": 32
     },
-    "max_epoch": 500
+    "max_epoch": 720
   },
   "protocol": {
     "update_metric": "valid_metric",
