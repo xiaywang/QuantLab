@@ -32,6 +32,11 @@ def clampWithGradInwards(x, low, high):
 def STERoundFunctional(x):
     return x - (x - x.round()).detach()
 
+def STEFloorFunctional(x):
+    neg = (x < 0).to(dtype=torch.float)
+    floored = x.floor() + neg
+    return x - (x - floored).detach()
+
 class STEController(indiv.Controller):
     def __init__(self, modules, clearOptimStateOnStart=False):
         super().__init__()
@@ -54,7 +59,7 @@ class STEActivation(torch.nn.Module):
     monitorEpoch: In this epoch, keep track of the maximal activation value (absolute value).
         Then (at epoch >= startEpoch), clamp the values to [-max, max], and then do quantization.
         If monitorEpoch is None, max=1 is used."""
-    def __init__(self, startEpoch=0, numLevels=3, passGradsWhenClamped=False, monitorEpoch=None):
+    def __init__(self, startEpoch=0, numLevels=3, passGradsWhenClamped=False, monitorEpoch=None, floorToZero=False):
         super().__init__()
         self.startEpoch = startEpoch
         self.started = startEpoch <= 0
@@ -64,6 +69,8 @@ class STEActivation(torch.nn.Module):
         if monitorEpoch is not None:
             self.monitoring = monitorEpoch == 1 # because the epoch starts at epoch 1
             assert(startEpoch > monitorEpoch)
+
+        self.floorToZero = floorToZero
 
         assert(numLevels >= 2)
         self.numLevels = numLevels
@@ -86,9 +93,12 @@ class STEActivation(torch.nn.Module):
                 xclamp = x.clamp(-1, 1)
             
             y = xclamp
-            y = (y + 1)/2 # map from [-1,1] to [0,1]
-            y = STERoundFunctional(y*(self.numLevels - 1))/(self.numLevels - 1)
-            y = 2*y - 1
+            if self.floorToZero:
+                y = STEFloorFunctional(y*((self.numLevels - 1)/2))/((self.numLevels - 1)/2)
+            else:
+                y = (y + 1)/2 # map from [-1,1] to [0,1]
+                y = STERoundFunctional(y*(self.numLevels - 1))/(self.numLevels - 1)
+                y = 2*y - 1
             y = y * self.absMaxValue.item() # map from [-1, 1] to [-max, max]
 #            factorLevels = (self.numLevels // 2)
 #            y = STERoundFunctional(xclamp*factorLevels)/factorLevels
