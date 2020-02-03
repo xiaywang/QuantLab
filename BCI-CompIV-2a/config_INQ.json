@@ -14,29 +14,23 @@
         "dropout_type": "TimeDropout2D",
         "quantWeight": true,
         "weightInqSchedule": {
-          "1": 0,
-          "420": 0.1,
-          "440": 0.2,
-          "460": 0.3,
-          "480": 0.4,
-          "500": 0.5,
-          "520": 0.6,
-          "540": 0.7,
-          "560": 0.8,
-          "580": 0.9,
-          "600": 0.96832,
-          "620": 0.97624,
-          "640": 0.98218,
-          "660": 0.98664,
-          "680": 0.98998,
-          "700": 1
+          "550": 0.5,
+          "560": 0.75,
+          "570": 0.875,
+          "580": 0.9375,
+          "590": 0.96875,
+          "600": 0.98438,
+          "610": 0.99219,
+          "620": 0.99609,
+          "630": 1
         },
-        "weightInqNumLevels": 256,
-        "weightInqStrategy": "magnitude",
+        "weightInqNumLevels": 255,
+        "weightInqStrategy": "RPR",
         "weightInqInitMethod": "uniform",
         "quantAct": true,
-        "actSTENumLevels": 256,
-        "actSTEStartEpoch": 400
+        "actSTENumLevels": 255,
+        "actSTEStartEpoch": 450,
+        "floorToZero": true
       },
       "pretrained": null
     },
@@ -77,7 +71,7 @@
       "bs_train": 32,
       "bs_valid": 32
     },
-    "max_epoch": 720
+    "max_epoch": 650
   },
   "protocol": {
     "update_metric": "valid_metric",
