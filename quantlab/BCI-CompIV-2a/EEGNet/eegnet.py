@@ -16,7 +16,8 @@ class EEGNet(t.nn.Module):
     def __init__(self, F1=8, D=2, F2=None, C=22, T=1125, N=4, p_dropout=0.5,
                  dropout_type='TimeDropout2d', quantWeight=True, quantAct=True,
                  weightInqSchedule=None, weightInqNumLevels=255, weightInqStrategy="matnitude",
-                 weightInqInitMethod="uniform", actSTENumLevels=256, actSTEStartEpoch=2):
+                 weightInqInitMethod="uniform", actSTENumLevels=255, actSTEStartEpoch=2,
+                 floorToZero=False, firstLayerNumLevels=None):
         """
         F1:           Number of spectral filters
         D:            Number of spacial filters (per spectral filter), F2 = F1 * D
@@ -26,11 +27,14 @@ class EEGNet(t.nn.Module):
         N:            Number of classes
         p_dropout:    Dropout Probability
         dropout_type: string, either 'dropout', 'SpatialDropout2d' or 'TimeDropout2D'
+        floorToZero:  STE rounding is done by floor towards zero
         """
         super(EEGNet, self).__init__()
 
         if weightInqSchedule is None:
             raise TypeError("Parameter weightInqSchedule is not set")
+        if firstLayerNumLevels is None:
+            firstLayerNumLevels = weightInqNumLevels
 
         weightInqSchedule = {int(k): v for k, v in weightInqSchedule.items()}
 
@@ -58,20 +62,16 @@ class EEGNet(t.nn.Module):
 
         # prepare helper functions to easily declare activation, convolution and linear unit
         def activ():
-            start = actSTEStartEpoch
-            monitor = start - 1
-            if quantAct:
-                return STEReLUActivation(startEpoch=start, monitorEpoch=monitor,
-                                         numLevels=actSTENumLevels)
-            else:
-                return t.nn.ReLU(inplace=True)
+            return t.nn.ReLU(inplace=True)
 
-        def activ_only():
+        def quantize(numLevels=None):
             start = actSTEStartEpoch
             monitor = start - 1
+            if numLevels is None:
+                numLevels = actSTENumLevels
             if quantAct:
                 return STEActivation(startEpoch=start, monitorEpoch=monitor,
-                                     numLevels=actSTENumLevels)
+                                     numLevels=numLevels, floorToZero=floorToZero)
             else:
                 return t.nn.Identity()
 
@@ -82,42 +82,45 @@ class EEGNet(t.nn.Module):
             else:
                 return t.nn.Linear(n_in, n_out, bias=bias)
 
-        def conv2d(name, in_channels, out_channels, kernel_size, **argv):
+        def conv2d(name, in_channels, out_channels, kernel_size, numLevels=None, **argv):
             if quantWeight:
+                if numLevels is None:
+                    numLevels = weightInqNumLevels
                 return INQConv2d(in_channels, out_channels, kernel_size,
-                                 numLevels=weightInqNumLevels, strategy=weightInqStrategy,
+                                 numLevels=numLevels, strategy=weightInqStrategy,
                                  quantInitMethod=weightInqInitMethod, **argv)
             else:
                 return t.nn.Conv2d(in_channels, out_channels, kernel_size, **argv)
 
         # Block 1
-        self.quant1 = activ_only()
+        self.quant1 = quantize(firstLayerNumLevels)
         self.conv1_pad = t.nn.ZeroPad2d((31, 32, 0, 0))
-        self.conv1 = conv2d("conv1", 1, F1, (1, 64), bias=False)
+        self.conv1 = conv2d("conv1", 1, F1, (1, 64), bias=False, numLevels=firstLayerNumLevels)
         self.batch_norm1 = t.nn.BatchNorm2d(F1, momentum=0.01, eps=0.001)
-        self.quant2 = activ_only()
+        self.quant2 = quantize()
         self.conv2 = conv2d("conv2", F1, D * F1, (C, 1), groups=F1, bias=False)
         self.batch_norm2 = t.nn.BatchNorm2d(D * F1, momentum=0.01, eps=0.001)
         self.activation1 = activ()
         self.pool1 = t.nn.AvgPool2d((1, 8))
-        self.quant3 = activ_only()
+        self.quant3 = quantize()
         # self.dropout1 = dropout(p=p_dropout)
         self.dropout1 = t.nn.Dropout(p=p_dropout)
 
         # Block 2
         self.sep_conv_pad = t.nn.ZeroPad2d((7, 8, 0, 0))
         self.sep_conv1 = conv2d("sep_conv1", D * F1, D * F1, (1, 16), groups=D * F1, bias=False)
-        self.quant4 = activ_only()
+        self.quant4 = quantize()
         self.sep_conv2 = conv2d("sep_conv2", D * F1, F2, (1, 1), bias=False)
         self.batch_norm3 = t.nn.BatchNorm2d(F2, momentum=0.01, eps=0.001)
         self.activation2 = activ()
         self.pool2 = t.nn.AvgPool2d((1, 8))
-        self.quant5 = activ_only()
+        self.quant5 = quantize()
         self.dropout2 = dropout(p=p_dropout)
 
         # Fully connected layer (classifier)
         self.flatten = Flatten()
         self.fc = linear("fc", F2 * n_features, N, bias=True)
+        self.quant6 = quantize(firstLayerNumLevels)
 
         self.inqController = INQController(INQController.getInqModules(self), weightInqSchedule,
                                            clearOptimStateOnStep=True)
@@ -158,6 +161,7 @@ class EEGNet(t.nn.Module):
         # Classification
         x = self.flatten(x)          # output dim: (s, F2 * (T // 64))
         x = self.fc(x)               # output dim: (s, N)
+        x = self.quant6(x)
 
         if with_stats:
             stats = [('conv1_w', self.conv1.weight.data),
@@ -211,14 +215,3 @@ class TimeDropout2d(t.nn.Dropout2d):
             input = F.dropout2d(input, self.p, True, self.inplace)
             input = input.permute(0, 2, 3, 1)
         return input
-
-
-class STEReLUActivation(t.nn.Module):
-    def __init__(self, startEpoch=0, numLevels=3, passGradsWhenClamped=False, monitorEpoch=None):
-        super(STEReLUActivation, self).__init__()
-        self.relu = t.nn.ReLU(inplace=True)
-        self.quant = STEActivation(startEpoch, 2*numLevels, passGradsWhenClamped,
-                                   monitorEpoch=monitorEpoch)
-
-    def forward(self, input):
-        return self.quant(self.relu(input))
