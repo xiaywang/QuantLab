@@ -120,7 +120,7 @@ class EEGNet(t.nn.Module):
         # Fully connected layer (classifier)
         self.flatten = Flatten()
         self.fc = linear("fc", F2 * n_features, N, bias=True)
-        self.quant6 = quantize(firstLayerNumLevels)
+        self.quant6 = quantize(255)
 
         self.inqController = INQController(INQController.getInqModules(self), weightInqSchedule,
                                            clearOptimStateOnStep=True)
