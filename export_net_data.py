@@ -11,6 +11,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('-e', '--exp_id', help='experiment identification', type=int, default=999)
 parser.add_argument('-s', '--sample', help='index of the sample', type=int, default=0)
 parser.add_argument('--train', help='Train network', action='store_true')
+parser.add_argument('-a', '--all', help='Export all samples', action='store_true')
 
 args = parser.parse_args()
 
@@ -53,9 +54,30 @@ model.load_state_dict(ckpt['indiv']['net'])
 for module in model.steController.modules:
     module.started = True
 
+model.train(False)
+
 # export all weights
 weights = {key: value.cpu().detach().numpy() for key, value in ckpt['indiv']['net'].items()}
 np.savez(output_file.format("net"), **weights)
+
+if args.all:
+    samples = []
+    labels = []
+    predictions = []
+
+    n_samples = len(dataset)
+    for sample in range(n_samples):
+        x = dataset[sample][0]
+        x = x.reshape(1, 1, 22, 1125)
+        label = dataset[sample][1]
+        prediction = model(x)
+
+        samples.append(x.numpy())
+        labels.append(label.numpy())
+        predictions.append(prediction.detach().numpy())
+
+    np.savez(output_file.format("benchmark"), samples=samples, labels=labels, predictions=predictions)
+
 
 # save input data
 np.savez(output_file.format("input"), input=dataset[args.sample][0].numpy())
@@ -63,7 +85,6 @@ np.savez(output_file.format("input"), input=dataset[args.sample][0].numpy())
 # prepare verification data
 verification = {}
 # do forward pass and compute the result of the network
-model.train(False)
 with torch.no_grad():
     x = dataset[args.sample][0]
     verification['input'] = x.numpy()
