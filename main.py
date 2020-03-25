@@ -86,7 +86,7 @@ def main(problem, topology, exp_id=None, load='best', mode='train', ckpt_every=1
                 logbook.store_checkpoint(ckpt)
 
         # return the last validation stats
-        return valid_stats
+        return train_stats, valid_stats
 
     elif mode == 'test':
         # test

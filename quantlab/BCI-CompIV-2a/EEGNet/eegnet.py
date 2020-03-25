@@ -17,7 +17,8 @@ class EEGNet(t.nn.Module):
                  dropout_type='TimeDropout2d', quantWeight=True, quantAct=True,
                  weightInqSchedule=None, weightInqNumLevels=255, weightInqStrategy="matnitude",
                  weightInqInitMethod="uniform", actSTENumLevels=255, actSTEStartEpoch=2,
-                 floorToZero=False, firstLayerNumLevels=None):
+                 floorToZero=False, actFirstLayerNumLevels=None, weightFirstLayerNumLevels=None,
+                 first_layer_only=False):
         """
         F1:           Number of spectral filters
         D:            Number of spacial filters (per spectral filter), F2 = F1 * D
@@ -33,8 +34,10 @@ class EEGNet(t.nn.Module):
 
         if weightInqSchedule is None:
             raise TypeError("Parameter weightInqSchedule is not set")
-        if firstLayerNumLevels is None:
-            firstLayerNumLevels = weightInqNumLevels
+        if weightFirstLayerNumLevels is None:
+            weightFirstLayerNumLevels = weightInqNumLevels
+        if actFirstLayerNumLevels is None:
+            actFirstLayerNumLevels = actSTENumLevels
 
         weightInqSchedule = {int(k): v for k, v in weightInqSchedule.items()}
 
@@ -64,10 +67,10 @@ class EEGNet(t.nn.Module):
         def activ():
             return t.nn.ReLU(inplace=True)
 
-        def quantize(numLevels=None):
+        def quantize(numLevels=None, first=False):
             start = actSTEStartEpoch
             monitor = start - 1
-            if numLevels is None:
+            if numLevels is None or (not first and first_layer_only):
                 numLevels = actSTENumLevels
             if quantAct:
                 return STEActivation(startEpoch=start, monitorEpoch=monitor,
@@ -75,15 +78,15 @@ class EEGNet(t.nn.Module):
             else:
                 return t.nn.Identity()
 
-        def linear(name, n_in, n_out, bias=True):
-            if quantWeight:
+        def linear(name, n_in, n_out, bias=True, first=False):
+            if quantWeight and not (not first and first_layer_only):
                 return INQLinear(n_in, n_out, bias=bias, numLevels=weightInqNumLevels,
                                  strategy=weightInqStrategy, quantInitMethod=weightInqInitMethod)
             else:
                 return t.nn.Linear(n_in, n_out, bias=bias)
 
-        def conv2d(name, in_channels, out_channels, kernel_size, numLevels=None, **argv):
-            if quantWeight:
+        def conv2d(name, in_channels, out_channels, kernel_size, numLevels=None, first=False, **argv):
+            if quantWeight and not (not first and first_layer_only):
                 if numLevels is None:
                     numLevels = weightInqNumLevels
                 return INQConv2d(in_channels, out_channels, kernel_size,
@@ -93,9 +96,10 @@ class EEGNet(t.nn.Module):
                 return t.nn.Conv2d(in_channels, out_channels, kernel_size, **argv)
 
         # Block 1
-        self.quant1 = quantize(firstLayerNumLevels)
+        self.quant1 = quantize(actFirstLayerNumLevels, first=True)
         self.conv1_pad = t.nn.ZeroPad2d((31, 32, 0, 0))
-        self.conv1 = conv2d("conv1", 1, F1, (1, 64), bias=False, numLevels=firstLayerNumLevels)
+        self.conv1 = conv2d("conv1", 1, F1, (1, 64), bias=False,
+                            numLevels=weightFirstLayerNumLevels, first=True)
         self.batch_norm1 = t.nn.BatchNorm2d(F1, momentum=0.01, eps=0.001)
         self.quant2 = quantize()
         self.conv2 = conv2d("conv2", F1, D * F1, (C, 1), groups=F1, bias=False)
