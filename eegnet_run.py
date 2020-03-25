@@ -6,6 +6,7 @@ import numpy as np
 from contextlib import redirect_stdout, redirect_stderr
 import progress
 from tqdm import tqdm
+import pickle
 
 from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
 
@@ -14,26 +15,31 @@ from main import main as quantlab_main
 PROBLEM = "BCI-CompIV-2a"
 TOPOLOGY = "EEGNet"
 EXP_FOLDER = "logs/exp{}"
-MEAS_ID = 11
+MEAS_ID = 12
 INQ_CONFIG = f"measurement/M{MEAS_ID:02}.json"
 BAK_CONFIG = ".config_backup.json"
 MAIN_CONFIG = "config.json"
 EXP_BASE = MEAS_ID * 100
 EXPORT_FILE = f"logs/measurement_{MEAS_ID:02}" + "_{}.npz"
+EXPORT_GRID_FILE = 'logs/grid_{}.npz'
 
 BENCHMARK = True
-N_ITER = 20
+GRID_MEASUREMENT = False
+N_ITER = 15
 
 
-def single_iter(bar=None, silent=False):
-    iter_stats = np.zeros(9)
+def single_iter(bar=None, silent=False, n_weights=None, n_activ=None):
+    iter_stats = np.zeros((9, 4))
     with TestEnvironment():
         for i in range(9):
             subject = i + 1
-            stats = _do_subject(subject, bar, silent)
+            stats = _do_subject(subject, bar, silent, n_weights=n_weights, n_activ=n_activ)
             if not silent:
-                print(f"Subject {subject}: quantized accuracy: {stats['acc']:.4f}                 ")
-            iter_stats[i] = stats['acc']
+                print(f"Subject {subject}: quantized accuracy: {stats['valid_acc']:.4f}                 ")
+            iter_stats[i] = np.array([stats['train_loss'],
+                                      stats['train_acc'],
+                                      stats['valid_loss'],
+                                      stats['valid_acc']])
 
     if not silent:
         print(f"Average quantized accuracy = {iter_stats.mean()}")
@@ -41,16 +47,64 @@ def single_iter(bar=None, silent=False):
     return iter_stats
 
 
+def grid_measurement():
+    stats = {}
+    cases = [
+        (255, 255),
+        (255, 127),
+        (255, 63),
+        (255, 31),
+        (255, 15),
+        (127, 255),
+        (127, 127),
+        (127, 63),
+        (127, 31),
+        (127, 15),
+        (63, 255),
+        (63, 127),
+        (63, 63),
+        (63, 31),
+        (63, 15),
+        (31, 255),
+        (31, 127),
+        (31, 63),
+        (31, 31),
+        (31, 15),
+        (15, 255),
+        (15, 127),
+        (15, 63),
+        (15, 31),
+        (15, 15),
+    ]
+    with tqdm(desc=f'Grid Searching on measurement {MEAS_ID:02}', total=N_ITER * 9 * len(cases),
+              ascii=True) as bar:
+        for n_weights, n_activ in cases:
+            stats[(n_weights, n_activ)] = np.zeros((N_ITER, 9, 4))
+            for i in range(N_ITER):
+                iter_stats = single_iter(bar=bar, silent=True, n_weights=n_weights, n_activ=n_activ)
+                stats[(n_weights, n_activ)][i, :, :] = iter_stats
+                legend = ["train_loss", "train_acc", "valid_loss", "valid_acc"]
+
+                # store it
+                filename = os.path.join(PROBLEM, 'grid_results.pkl')
+                with open(filename, 'wb') as _f:
+                    pickle.dump({"stats": stats, "legend": legend}, _f)
+
+
 def benchmark():
-    stats = np.zeros((N_ITER, 9))
+    stats = np.zeros((N_ITER, 9, 4))
 
     with tqdm(desc=f'Benchmarking Measurement {MEAS_ID:02}', total=N_ITER * 9, ascii=True) as bar:
         for i in range(N_ITER):
             iter_stats = single_iter(bar=bar, silent=True)
-            stats[i, :] = iter_stats
+            stats[i, :, :] = iter_stats
 
             # store the data to make sure not to loose it
-            np.savez(file=os.path.join(PROBLEM, EXPORT_FILE.format("runs")), quant=stats)
+            np.savez(file=os.path.join(PROBLEM, EXPORT_FILE.format("runs")),
+                     train_loss=stats[i, :, 0],
+                     train_acc=stats[i, :, 1],
+                     valid_loss=stats[i, :, 2],
+                     valid_acc=stats[i, :, 3])
 
     # compute statistics
     avg_stats = stats.mean(axis=0)
@@ -66,7 +120,7 @@ def benchmark():
         print(f"subject {i+1}: quantized model = {avg_stats[i]:.4f} +- {std_stats[i]:.4f}")
 
 
-def _do_subject(subject, bar=None, silent=False):
+def _do_subject(subject, bar=None, silent=False, n_weights=None, n_activ=None):
     exp_id = EXP_BASE + subject
 
     if not silent:
@@ -74,16 +128,22 @@ def _do_subject(subject, bar=None, silent=False):
               flush=True)
 
     modification = {'treat.data.subject': subject}
-    stats = _execute_quantlab(INQ_CONFIG, exp_id, modification)
+    if n_weights is not None:
+        modification['indiv.net.params.weightInqNumLevels'] = n_weights
+        modification["indiv.net.params.first_layer_only"] = True
+    if n_activ is not None:
+        modification['indiv.net.params.actSTENumLevels'] = n_activ
+    valid_stats, train_stats = _execute_quantlab(INQ_CONFIG, exp_id, modification)
 
     if bar is not None:
         bar.update()
 
     # accumulate log files
-    if BENCHMARK:
-        _accumulate_logs(subject, exp_id)
+    if BENCHMARK or GRID_MEASUREMENT:
+        # _accumulate_logs(subject, exp_id)
+        _just_store_anything(subject, exp_id, n_weights=n_weights, n_activ=n_activ)
 
-    return _format_stats(stats)
+    return _format_all_stats(train_stats, valid_stats)
 
 
 def _execute_quantlab(config_file, exp_id, modify_keys=None):
@@ -109,7 +169,24 @@ def _execute_quantlab(config_file, exp_id, modify_keys=None):
 
     # execute quantlab without output
     with open(os.devnull, 'w') as devnull, redirect_stderr(devnull), redirect_stdout(devnull):
-        stats = quantlab_main(PROBLEM, TOPOLOGY, exp_id, 'best', 'train', 10, 1, False, True)
+        train_stats, stats = quantlab_main(PROBLEM, TOPOLOGY, exp_id, 'best', 'train', 10, 1, False,
+                                           True)
+
+    return stats, train_stats
+
+
+def _format_all_stats(train_stats, valid_stats):
+    stats = {}
+    for key, value in train_stats.items():
+        if key.endswith("loss"):
+            stats['train_loss'] = value
+        if key.endswith("metric"):
+            stats['train_acc'] = value
+    for key, value in valid_stats.items():
+        if key.endswith("loss"):
+            stats['valid_loss'] = value
+        if key.endswith("metric"):
+            stats['valid_acc'] = value
 
     return stats
 
@@ -145,6 +222,47 @@ def _set_dict_value(d, path, value):
     for key in keys[:-1]:
         d_working = d_working[key]
     d_working[keys[-1]] = value
+
+
+def _just_store_anything(subject, exp_id, n_weights=None, n_activ=None):
+    """ stores everything """
+    # extract name of logfile
+    stats_folder = os.path.join(PROBLEM, EXP_FOLDER.format(exp_id), "stats")
+    log_files = os.listdir(stats_folder)
+    assert(len(log_files) == 1)
+    log_file = os.path.join(stats_folder, log_files[0])
+
+    # get eventaccumulator
+    ea = EventAccumulator(log_file)
+    ea.Reload()
+
+    # load data file
+    if GRID_MEASUREMENT:
+        name_addon = f"data_W{n_weights}_A{n_activ}_S{subject:02}"
+    else:
+        name_addon = f"data_S{subject:02}"
+    data_file = os.path.join(PROBLEM, EXPORT_FILE.format(name_addon))
+    if os.path.exists(data_file):
+        with np.load(data_file) as data_loader:
+            data = dict(data_loader)
+    else:
+        data = {'num_trials': 0}
+
+    # update the data dictionary to keep the mean value
+    num_trials = data['num_trials']
+    for key in ea.Tags()['scalars']:
+        new_arr = _prepare_scalar_array_from_tensorboard(ea, key)
+        new_arr = np.array([new_arr])
+        if num_trials == 0:
+            # just add the data
+            data[key] = new_arr
+        else:
+            assert(key in data)
+            data[key] = np.concatenate((data[key], new_arr), axis=0)
+    data['num_trials'] += 1
+
+    # store data back into the same file
+    np.savez(data_file, **data)
 
 
 def _accumulate_logs(subject, exp_id):
@@ -227,6 +345,8 @@ class TestEnvironment():
 
 if __name__ == '__main__':
 
+    if GRID_MEASUREMENT:
+        grid_measurement()
     if BENCHMARK:
         benchmark()
     else:
