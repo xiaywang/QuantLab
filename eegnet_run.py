@@ -42,7 +42,7 @@ def single_iter(bar=None, silent=False, n_weights=None, n_activ=None):
                                       stats['valid_acc']])
 
     if not silent:
-        print(f"Average quantized accuracy = {iter_stats.mean()}")
+        print(f"Average quantized accuracy = {iter_stats.mean(axis=0)[3]}")
 
     return iter_stats
 
@@ -112,12 +112,12 @@ def benchmark():
 
     # For the overall score, first average along all subjects.
     # For standard deviation, average all standard deviations of all subjects
-    mean_avg_stats = avg_stats[:].mean()
-    mean_std_stats = std_stats[:].mean()
+    mean_avg_stats = avg_stats[:].mean(axis=0) # average over all subjects
+    mean_std_stats = std_stats[:].mean(axis=0) # std over all subjects
 
-    print(f"Total Average Accuracy: {mean_avg_stats:.4f} +- {mean_std_stats:.4f}\n")
+    print(f"Total Average Accuracy: {mean_avg_stats[3]:.4f} +- {mean_std_stats[3]:.4f}\n")
     for i in range(0, 9):
-        print(f"subject {i+1}: quantized model = {avg_stats[i]:.4f} +- {std_stats[i]:.4f}")
+        print(f"subject {i+1}: quantized model = {avg_stats[i,3]:.4f} +- {std_stats[i,3]:.4f}")
 
 
 def _do_subject(subject, bar=None, silent=False, n_weights=None, n_activ=None):
